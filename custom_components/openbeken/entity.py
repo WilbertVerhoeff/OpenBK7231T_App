@@ -19,13 +19,17 @@ class OpenBekenEntity(CoordinatorEntity[OpenBekenCoordinator]):
         self.obk_id = entity["id"]
         self._attr_unique_id = f"{coordinator.device_id.replace(':', '').replace('-', '').lower()}_{self.obk_id}"
         self._attr_name = entity.get("name") or self.obk_id
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, coordinator.device_id.replace(":", "").replace("-", "").lower())},
-            name=coordinator.device_name,
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Use current metadata, including firmware learned on reconnect."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self.coordinator.device_id.replace(":", "").replace("-", "").lower())},
+            name=self.coordinator.device_name,
             manufacturer="OpenBeken",
             model="OpenBeken device",
-            sw_version=coordinator.firmware,
-            configuration_url=f"http://{coordinator.host}",
+            sw_version=self.coordinator.firmware,
+            configuration_url=f"http://{self.coordinator.host}",
         )
 
     @property

@@ -9,6 +9,7 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import DOMAIN, PROTOCOL_VERSION
@@ -90,6 +91,7 @@ class OpenBekenCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if got_entities and message.get("type") == "state" and message.get("full"):
                     break
             self._connected = True
+            self._async_update_device_info()
             self.async_set_updated_data({"entities": self.entities, "states": self.states})
             self._runner = self.config_entry.async_create_background_task(
                 self.hass,
@@ -99,6 +101,22 @@ class OpenBekenCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except (OSError, asyncio.TimeoutError, ConnectionError, ValueError, json.JSONDecodeError, UpdateFailed) as err:
             await self._close_connection()
             raise UpdateFailed(f"Could not connect to OpenBeken device: {err}") from err
+
+    @callback
+    def _async_update_device_info(self) -> None:
+        """Refresh an existing device's metadata after a successful connection."""
+        if not isinstance(self.firmware, str) or not self.firmware:
+            return
+        registry = dr.async_get(self.hass)
+        device = registry.async_get_device(
+            identifiers={(DOMAIN, self.device_id.replace(":", "").replace("-", "").lower())}
+        )
+        if device is not None:
+            registry.async_update_device(
+                device.id,
+                sw_version=self.firmware,
+                configuration_url=f"http://{self.host}",
+            )
 
     async def _reader_loop(self) -> None:
         try:

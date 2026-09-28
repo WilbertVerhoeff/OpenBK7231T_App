@@ -11,5 +11,5 @@
   "zeroconf": [
     {"type": "_openbeken._tcp.local.", "properties": {"api": "1"}}
   ],
-  "version": "1.0.0"
+  "version": "1.0.1"
 }

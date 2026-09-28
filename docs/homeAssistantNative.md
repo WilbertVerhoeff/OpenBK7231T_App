@@ -18,6 +18,8 @@ Configured temperature, humidity, voltage, current, power, battery, illuminance 
 
 The integration uses the Wi-Fi MAC as the stable device identity, shows the firmware version and links the device entry to its web interface. It provides a restart button, restores full state on every connection, streams channel changes and samples cached power readings once per second. It requests a snapshot if it detects a missed sequence number. Effect animation frames are not sent as state updates. Light and channel commands go through OpenBeken's existing control layers.
 
+Integration version 1.0.1 refreshes the registered firmware version and web interface link after reconnecting, including after an OTA update. To install this fix, replace the `custom_components/openbeken` directory in Home Assistant and restart Home Assistant; a new firmware upload is not required.
+
 ## Development installation
 
 For local development, symlink or copy this repository's `custom_components/openbeken` directory into Home Assistant's `config/custom_components/openbeken`. Validate it with Home Assistant's config checker and integration tests in a Home Assistant Core checkout.
