@@ -1,6 +1,6 @@
 # OpenBeken Native API
 
-The OpenBeken Native API (OBKA) is a small LAN-only, persistent TCP protocol used by the bundled Home Assistant custom integration. It is independent from MQTT, the raw command TCP server (port 100), REST, and the ESPHome Bluetooth Proxy API.
+The OpenBeken Native API (OBKA) is a small LAN-only, persistent TCP protocol used by the separately maintained [OpenBeken Home Assistant integration](https://github.com/WilbertVerhoeff/openbeken-homeassistant). It is independent from MQTT, the raw command TCP server (port 100), REST, and the ESPHome Bluetooth Proxy API.
 
 ## Discovery and connection
 
@@ -74,4 +74,4 @@ This version has no TLS or authentication and must be used only on a trusted LAN
 
 ## Home Assistant integration
 
-The repository's `custom_components/openbeken` integration browses `_openbeken._tcp.local`, uses TXT `id` as the unique identity, connects to port 6054, negotiates protocol 1, consumes `entities`, issues `get_state` after reconnect, and uses `seq` to detect missed deltas. It is a local push (`iot_class: local_push`) integration. Installation and setup are documented in [homeAssistantNative.md](homeAssistantNative.md).
+The separately maintained [OpenBeken Home Assistant integration](https://github.com/WilbertVerhoeff/openbeken-homeassistant) browses `_openbeken._tcp.local`, uses TXT `id` as the unique identity, connects to port 6054, negotiates protocol 1, consumes `entities`, issues `get_state` after reconnect, and uses `seq` to detect missed deltas. It is a local push (`iot_class: local_push`) integration. The integration source and its tests belong to that repository. Device setup is documented in [homeAssistantNative.md](homeAssistantNative.md); integration installation and releases are documented in the integration repository.

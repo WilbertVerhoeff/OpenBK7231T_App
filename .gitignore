@@ -14,8 +14,6 @@ output/**
 .vscode
 recents.json
 node_modules
-__pycache__/
-*.py[cod]
 Debug*/**
 libs_for_simulator/**
 *.user
