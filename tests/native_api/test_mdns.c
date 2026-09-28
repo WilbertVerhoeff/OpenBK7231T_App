@@ -18,9 +18,11 @@ static int mdns_resp_add_service(struct netif *netif, const char *host, const ch
 	for (int i = 0; i < MDNS_MAX_SERVICES; i++) if (!used[i]) { used[i] = !strcmp(name, "_http") ? 1 : 2; return i; }
 	return -1;
 }
+#if ENABLE_DRIVER_OPENBEKEN_API
 static void mdns_resp_del_service(struct netif *netif, int slot) {
 	(void)netif; assert(slot >= 0 && slot < MDNS_MAX_SERVICES); used[slot] = 0; deleted++;
 }
+#endif
 #include "mdns_services.inc"
 int main(void) {
 	struct netif netif;
@@ -28,7 +30,7 @@ int main(void) {
 	g_mdnsOpenBekenPort = 6054; fail_api = 1;
 	DRV_MDNS_UpdateServices(&netif, "test"); assert(used[0] == 1 && !deleted);
 	fail_api = 0; DRV_MDNS_UpdateServices(&netif, "test"); assert(used[0] == 1);
-#if MDNS_MAX_SERVICES >= 2
+#if ENABLE_DRIVER_OPENBEKEN_API && MDNS_MAX_SERVICES >= 2
 	assert(g_mdnsOpenBekenServiceSlot == 1 && used[1] == 2);
 	DRV_MDNS_UpdateServices(&netif, "test"); assert(!deleted);
 	g_mdnsOpenBekenPort = 0; DRV_MDNS_UpdateServices(&netif, "test");
@@ -37,6 +39,6 @@ int main(void) {
 #else
 	assert(g_mdnsOpenBekenServiceSlot == -1 && !deleted);
 #endif
-	printf("PASS mDNS: %d slots, HTTP retained, API failure/stop/restart\n", MDNS_MAX_SERVICES);
+	printf("PASS mDNS: API=%d, %d slots, HTTP retained, optional service lifecycle\n", ENABLE_DRIVER_OPENBEKEN_API, MDNS_MAX_SERVICES);
 	return 0;
 }

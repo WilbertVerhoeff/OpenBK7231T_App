@@ -113,11 +113,11 @@ static void DRV_MDNS_UpdateServices(struct netif *netif, const char *hostName) {
 #endif
 		if (g_mdnsServiceSlot < 0) addLogAdv(LOG_ERROR, LOG_FEATURE_HTTP, "DRV_MDNS: HTTP service failed");
 	}
+#if ENABLE_DRIVER_OPENBEKEN_API && MDNS_MAX_SERVICES >= 2
 	if (g_mdnsOpenBekenPort == 0 && g_mdnsOpenBekenServiceSlot >= 0) {
 		mdns_resp_del_service(netif, g_mdnsOpenBekenServiceSlot);
 		g_mdnsOpenBekenServiceSlot = -1;
 	}
-#if MDNS_MAX_SERVICES >= 2
 	if (g_mdnsOpenBekenPort > 0 && g_mdnsOpenBekenServiceSlot < 0) {
 #if PLATFORM_ESPIDF || PLATFORM_GD32VW553
 		g_mdnsOpenBekenServiceSlot = mdns_resp_add_service(netif, hostName, "_openbeken", DNSSD_PROTO_TCP, g_mdnsOpenBekenPort, 0, DRV_MDNS_OpenBekenTXT, 0);

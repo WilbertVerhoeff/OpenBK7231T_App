@@ -51,11 +51,12 @@ def main():
         mdns = mdns[mdns.index("static void DRV_MDNS_UpdateServices"):]
         mdns = mdns[:mdns.index("static void DRV_MDNS_StartOrRestart")]
         (directory / "mdns_services.inc").write_text(mdns)
-        for slots in (1, 2):
+        for enabled, slots in ((1, 1), (1, 2), (0, 1), (0, 2)):
             subprocess.run([
                 os.environ.get("CC", "gcc"), "-std=gnu99", "-g", "-O1",
                 "-fsanitize=address,undefined", "-fno-omit-frame-pointer", "-no-pie",
-                f"-DMDNS_MAX_SERVICES={slots}", "-I", str(directory),
+                f"-DMDNS_MAX_SERVICES={slots}", f"-DENABLE_DRIVER_OPENBEKEN_API={enabled}",
+                "-Werror=implicit-function-declaration", "-I", str(directory),
                 str(ROOT / "tests/native_api/test_mdns.c"), "-o", str(executable)
             ], check=True)
             subprocess.run([str(executable)], check=True, timeout=10)
