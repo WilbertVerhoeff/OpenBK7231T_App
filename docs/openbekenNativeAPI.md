@@ -4,11 +4,13 @@ The OpenBeken Native API (OBKA) is a small LAN-only, persistent TCP protocol use
 
 ## Discovery and connection
 
+The initial supported firmware targets are **BK7231N and BK7231T**. The default build enables the driver on those targets; starting the driver remains opt-in. Other SDKs need separate build and hardware validation before enabling it. Both Make and CMake source lists register the driver.
+
 The server listens on TCP port **6054**. When mDNS is available it publishes `_openbeken._tcp.local` with `id`, `name`, `version`, and `api=1` TXT records. `id` is the Wi-Fi MAC address, not an IP address. The existing `_http` mDNS service remains enabled.
 
 The driver is opt-in: run `startDriver OpenBekenAPI` to start it. Run `startDriver MDNS` for automatic discovery. Add both commands to `autoexec.bat` to start them after each reboot.
 
-There is one client slot. Each message is one UTF-8 JSON object terminated by `\n`; a line must not exceed 1023 bytes. A client first receives:
+There is one client slot. Each message is one UTF-8 JSON object terminated by `\n`; a line must not exceed 1023 bytes, excluding the newline. Input nesting is limited to eight levels. Embedded NUL bytes are rejected. A client first receives:
 
 ```json
 {"type":"hello","protocol":1,"device_id":"AABBCCDDEEFF","name":"OpenBeken","firmware":"1.x","platform":"BK7231N"}
@@ -20,7 +22,7 @@ It must reply before any other request:
 {"type":"hello","protocol":1,"client":"home-assistant"}
 ```
 
-The device then sends `entities` and a full `state` snapshot. Unsupported versions return `unsupported_protocol` and the connection closes.
+The device then sends `entities` and a full `state` snapshot. The hello must complete within ten seconds, including when bytes arrive slowly. Only numeric protocol version 1 is accepted; unsupported versions return `unsupported_protocol` and the connection closes.
 
 ## Entities and state
 
@@ -49,7 +51,7 @@ Entity descriptions are sent on every connection and can also arrive unsolicited
 {"type":"state_changed","seq":43,"entity":"light_0","state":{"on":true,"brightness":128,"mode":"rgb","rgb":[255,0,0],"white_level":0,"effect":null}}
 ```
 
-Changes to normal channels flow through OpenBeken's central `CHANNEL_Set` path. Logical LED changes are emitted after the existing LED layer has applied RGB/CW/PWM output; therefore IR, PixelAnim, the web UI, scripts, TuyaMCU, timers, and native commands share the same source of truth. Light changes are coalesced for about 40 ms.
+Changes to normal channels flow through OpenBeken's central `CHANNEL_Set` path. Logical LED changes are emitted after the existing LED layer has applied RGB/CW/PWM output; therefore IR, PixelAnim, the web UI, scripts, TuyaMCU, timers, and native commands share the same source of truth. Updates are batched for about 40 ms from the first pending change. Continuous changes do not extend this deadline. A short interrupt critical section snapshots callback flags before sending; changes arriving afterwards remain pending for the next batch.
 
 ## Commands and errors
 
@@ -66,11 +68,29 @@ For a light with the matching advertised features, `{"mode":"white","white_level
 
 Possible stable errors are `malformed_json`, `packet_too_large`, `invalid_request`, `unsupported_protocol`, `unsupported_type`, `unknown_entity`, and `unsupported_feature`.
 
+Command `id` values must be nonnegative integers within the firmware's signed integer range. Invalid IDs are rejected before any state change or restart.
+
 ## Resilience and security
 
-The server accepts a replacement connection after disconnects and resumes listening after Wi-Fi returns. Reconnecting clients always receive entities plus a full snapshot. It uses a low-rate 60-second `ping`/`pong` heartbeat, samples cached power readings once per second, bounds input size, and disconnects broken sockets rather than blocking channel callbacks.
+The server accepts a replacement connection after disconnects and resumes listening after Wi-Fi returns. Reconnecting clients always receive entities plus a full snapshot. It sends a 60-second `ping`, accepts client `pong` responses, and disconnects after 120 seconds without received data. It samples cached power readings once per second, bounds input size, and disconnects broken sockets rather than blocking channel callbacks. Invalid power values are represented as `null` in snapshots.
+
+The server thread owns and closes both sockets before shutdown. API discovery is published only after the listener starts successfully and is withdrawn when stopped. The BK7231N/T pre-build hooks set `MDNS_MAX_SERVICES` to two in the SDK header before compiling both the responder and application. This preserves their shared structure layout and allows HTTP and API discovery together. A one-slot SDK retains HTTP discovery and requires manual API setup.
 
 This version has no TLS or authentication and must be used only on a trusted LAN. Protocol versioning and the initial hello leave room for an authenticated future version.
+
+## Development and validation
+
+Run the firmware regression checks on Linux with Python 3 and GCC:
+
+```sh
+python3 tests/native_api/run_tests.py
+make APP_NAME=OpenBK7231N APP_VERSION=api_validation OpenBK7231N
+make APP_NAME=OpenBK7231T APP_VERSION=api_validation OpenBK7231T
+```
+
+The host checks compile the production API implementation and cJSON with hardware/RTOS adapters, AddressSanitizer and UndefinedBehaviorSanitizer. They cover protocol validation, relay commands, private channels, batching races, clock wrap, repeated shutdown, TCP framing, Wi-Fi recovery, listener failure, HTTP/API discovery and the SDK hook. LED and power-meter hardware paths are not exercised by this harness. The GitHub workflow `Native API checks` runs these checks and both standard firmware builds.
+
+The API reserves an 8192-byte static transmit buffer and creates a 5120-byte task stack while running. Host checks do not prove device stack headroom, heap usage or physical output behavior. Before submitting upstream, test the freshly built image on hardware: HTTP plus API discovery, sustained light changes, power readings, reconnects, driver stop/start and free heap. Keep the Home Assistant integration tests in the integration repository. The local Windows linker workaround is not required by the Linux build and is excluded from the firmware change.
 
 ## Home Assistant integration
 

@@ -9,3 +9,8 @@
 # Declare files that will always have CRLF line endings on checkout.
 *.sln text eol=crlf
 *.vcproj text eol=crlf
+
+# SDK pre-build hooks are executed by Linux CI and Windows bash.
+platforms/BK7231N/pre_build.sh text eol=lf
+platforms/BK7231T/pre_build.sh text eol=lf
+platforms/BK723x/native_api_mdns.sh text eol=lf

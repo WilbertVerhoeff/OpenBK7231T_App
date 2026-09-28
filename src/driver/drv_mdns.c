@@ -103,6 +103,32 @@ static struct netif *DRV_MDNS_GetStaNetif(void) {
 #endif
 }
 
+/* Keep the existing HTTP service even on SDKs with only one service slot. */
+static void DRV_MDNS_UpdateServices(struct netif *netif, const char *hostName) {
+	if (g_mdnsServiceSlot < 0) {
+#if PLATFORM_ESPIDF || PLATFORM_GD32VW553
+		g_mdnsServiceSlot = mdns_resp_add_service(netif, hostName, "_http", DNSSD_PROTO_TCP, 80, 0, 0);
+#else
+		g_mdnsServiceSlot = mdns_resp_add_service(netif, hostName, "_http", DNSSD_PROTO_TCP, 80, 120, 0, 0);
+#endif
+		if (g_mdnsServiceSlot < 0) addLogAdv(LOG_ERROR, LOG_FEATURE_HTTP, "DRV_MDNS: HTTP service failed");
+	}
+	if (g_mdnsOpenBekenPort == 0 && g_mdnsOpenBekenServiceSlot >= 0) {
+		mdns_resp_del_service(netif, g_mdnsOpenBekenServiceSlot);
+		g_mdnsOpenBekenServiceSlot = -1;
+	}
+#if MDNS_MAX_SERVICES >= 2
+	if (g_mdnsOpenBekenPort > 0 && g_mdnsOpenBekenServiceSlot < 0) {
+#if PLATFORM_ESPIDF || PLATFORM_GD32VW553
+		g_mdnsOpenBekenServiceSlot = mdns_resp_add_service(netif, hostName, "_openbeken", DNSSD_PROTO_TCP, g_mdnsOpenBekenPort, 0, DRV_MDNS_OpenBekenTXT, 0);
+#else
+		g_mdnsOpenBekenServiceSlot = mdns_resp_add_service(netif, hostName, "_openbeken", DNSSD_PROTO_TCP, g_mdnsOpenBekenPort, 120, DRV_MDNS_OpenBekenTXT, 0);
+#endif
+		if (g_mdnsOpenBekenServiceSlot < 0) addLogAdv(LOG_ERROR, LOG_FEATURE_HTTP, "DRV_MDNS: OpenBeken service failed");
+	}
+#endif
+}
+
 static void DRV_MDNS_StartOrRestart(void) {
 	struct netif *netif;
 	const char *hostName;
@@ -134,23 +160,7 @@ static void DRV_MDNS_StartOrRestart(void) {
 #endif
 		if (err == ERR_OK) {
 			g_mdnsNetifAdded = 1;
-			/* Some SDKs build lwIP with room for only one DNS-SD service.
-			 * Prefer the native API when it is available. */
-			if (g_mdnsOpenBekenPort > 0) {
-#if PLATFORM_ESPIDF || PLATFORM_GD32VW553
-				g_mdnsOpenBekenServiceSlot = mdns_resp_add_service(netif, hostName, "_openbeken", DNSSD_PROTO_TCP, g_mdnsOpenBekenPort, 0, DRV_MDNS_OpenBekenTXT, 0);
-#else
-				g_mdnsOpenBekenServiceSlot = mdns_resp_add_service(netif, hostName, "_openbeken", DNSSD_PROTO_TCP, g_mdnsOpenBekenPort, 120, DRV_MDNS_OpenBekenTXT, 0);
-#endif
-				if (g_mdnsOpenBekenServiceSlot < 0) addLogAdv(LOG_ERROR, LOG_FEATURE_HTTP, "DRV_MDNS: OpenBeken service failed");
-			} else {
-#if PLATFORM_ESPIDF || PLATFORM_GD32VW553
-				g_mdnsServiceSlot = mdns_resp_add_service(netif, hostName, "_http", DNSSD_PROTO_TCP, 80, 0, 0);
-#else
-				g_mdnsServiceSlot = mdns_resp_add_service(netif, hostName, "_http", DNSSD_PROTO_TCP, 80, 120, 0, 0);
-#endif
-				if (g_mdnsServiceSlot < 0) addLogAdv(LOG_ERROR, LOG_FEATURE_HTTP, "DRV_MDNS: HTTP service failed");
-			}
+			DRV_MDNS_UpdateServices(netif, hostName);
 #if DRV_MDNS_HAS_RESTART_API
 			mdns_resp_announce(netif);
 #else
@@ -161,18 +171,7 @@ static void DRV_MDNS_StartOrRestart(void) {
 			addLogAdv(LOG_ERROR, LOG_FEATURE_HTTP, "DRV_MDNS: mdns_resp_add_netif failed %d", (int)err);
 		}
 	} else {
-		if (g_mdnsOpenBekenPort > 0 && g_mdnsOpenBekenServiceSlot < 0) {
-			if (g_mdnsServiceSlot >= 0) {
-				mdns_resp_del_service(netif, g_mdnsServiceSlot);
-				g_mdnsServiceSlot = -1;
-			}
-#if PLATFORM_ESPIDF || PLATFORM_GD32VW553
-			g_mdnsOpenBekenServiceSlot = mdns_resp_add_service(netif, hostName, "_openbeken", DNSSD_PROTO_TCP, g_mdnsOpenBekenPort, 0, DRV_MDNS_OpenBekenTXT, 0);
-#else
-			g_mdnsOpenBekenServiceSlot = mdns_resp_add_service(netif, hostName, "_openbeken", DNSSD_PROTO_TCP, g_mdnsOpenBekenPort, 120, DRV_MDNS_OpenBekenTXT, 0);
-#endif
-			if (g_mdnsOpenBekenServiceSlot < 0) addLogAdv(LOG_ERROR, LOG_FEATURE_HTTP, "DRV_MDNS: OpenBeken service failed");
-		}
+		DRV_MDNS_UpdateServices(netif, hostName);
 #if DRV_MDNS_HAS_RESTART_API
 		mdns_resp_restart(netif);
 		mdns_resp_announce(netif);
@@ -186,6 +185,9 @@ static void DRV_MDNS_StartOrRestart(void) {
 }
 
 void DRV_MDNS_RegisterOpenBekenAPI(int port) {
+	if (port > 0 && MDNS_MAX_SERVICES < 2) {
+		addLogAdv(LOG_ERROR, LOG_FEATURE_HTTP, "DRV_MDNS: no extra service slot; use manual native API setup");
+	}
 	g_mdnsOpenBekenPort = port;
 	if (DRV_MDNS_Active && Main_IsConnectedToWiFi()) DRV_MDNS_StartOrRestart();
 }

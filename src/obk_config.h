@@ -341,7 +341,12 @@
 #if PLATFORM_BK7231N || PLATFORM_BK7231T || PLATFORM_BK7238
 #define ENABLE_DRIVER_MDNS						1
 #endif
+/* Native API v1 is initially supported on the legacy BK7231N/T SDKs. */
+#if PLATFORM_BK7231N || PLATFORM_BK7231T
+#ifndef ENABLE_DRIVER_OPENBEKEN_API
 #define ENABLE_DRIVER_OPENBEKEN_API			1
+#endif
+#endif
 #define ENABLE_DRIVER_IR						1
 #define ENABLE_DRIVER_RC						1
 // #define ENABLE_DRIVER_IR2					1

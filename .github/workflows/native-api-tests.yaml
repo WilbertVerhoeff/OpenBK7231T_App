@@ -1,0 +1,37 @@
+name: Native API checks
+
+on:
+  push:
+    paths:
+      - 'src/**'
+      - 'platforms/**'
+      - 'tests/native_api/**'
+      - '.github/workflows/native-api-tests.yaml'
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'platforms/**'
+      - 'tests/native_api/**'
+      - '.github/workflows/native-api-tests.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  protocol:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tests/native_api/run_tests.py
+  firmware:
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        platform: [OpenBK7231N, OpenBK7231T]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install legacy toolchain runtime
+        run: sudo apt-get update && sudo apt-get install -y libc6-i386
+      - name: Build firmware with standard SDK hooks
+        run: make APP_NAME=${{ matrix.platform }} APP_VERSION=api_validation ${{ matrix.platform }}

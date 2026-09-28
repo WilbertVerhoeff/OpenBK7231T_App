@@ -1,4 +1,6 @@
 # This script will be called just before starting build process for BK7231T
+set -e
+sh platforms/BK723x/native_api_mdns.sh sdk/OpenBK7231T
 # It allows you to make changes to the SDK, for example..
 # For example, you can use changed files in the SDK for the automated build during the checks for a PR without changing the SDK itself:
 # So your PR needs a modified define in the SDK, for example ? This script can make this change directly before the build.

@@ -662,5 +662,12 @@
     "descr": "MQTT Server driver.",
     "requires": "",
     "define": "Enabled by defining \"<b>ENABLE_DRIVER_MQTTSERVER</b>\" for your platform in [obk_config.h](https://github.com/openshwprojects/OpenBK7231T_App/blob/main/src/obk_config.h) "
+  },
+  {
+    "name": "OpenBekenAPI",
+    "title": "OpenBeken Native API",
+    "descr": "Opt-in local TCP push API on port 6054 for the separately maintained OpenBeken Home Assistant integration. Protocol 1 supports one client on a trusted LAN without authentication or TLS. Initially enabled for BK7231N/T; start MDNS separately for discovery.",
+    "requires": "",
+    "define": "Enabled by defining \"<b>ENABLE_DRIVER_OPENBEKEN_API</b>\" for your platform in [obk_config.h](https://github.com/openshwprojects/OpenBK7231T_App/blob/main/src/obk_config.h) "
   }
 ]

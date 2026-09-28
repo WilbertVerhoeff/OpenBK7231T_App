@@ -181,7 +181,7 @@ static driver_t g_drivers[] = {
 #if ENABLE_DRIVER_OPENBEKEN_API
 	//drvdetail:{"name":"OpenBekenAPI",
 	//drvdetail:"title":"OpenBeken Native API",
-	//drvdetail:"descr":"Local newline-delimited JSON API for the official OpenBeken Home Assistant integration.",
+	//drvdetail:"descr":"Opt-in local TCP push API on port 6054 for the separately maintained OpenBeken Home Assistant integration. Protocol 1 supports one client on a trusted LAN without authentication or TLS. Initially enabled for BK7231N/T; start MDNS separately for discovery.",
 	//drvdetail:"requires":""}
 	{ "OpenBekenAPI",                         // Driver Name
 	DRV_OpenBeken_API_Init,                    // Init
