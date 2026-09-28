@@ -17,6 +17,7 @@ set ACTION=build
 :: Allow overriding version from command line
 if not "%~1"=="" set APP_VERSION=%~1
 if not "%~2"=="" set ACTION=%~2
+if not "%~3"=="" set OBK_VARIANT=%~3
 
 echo ==============================================
 echo Building OpenBeken for BK7231N on Windows

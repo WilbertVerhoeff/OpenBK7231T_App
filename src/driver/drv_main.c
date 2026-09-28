@@ -13,6 +13,7 @@
 #include "drv_deviceclock.h"
 #include "drv_public.h"
 #include "drv_mdns.h"
+#include "drv_openbeken_api.h"
 #include "drv_ssdp.h"
 #include "drv_test_drivers.h"
 #include "drv_tuyaMCU.h"
@@ -175,6 +176,22 @@ static driver_t g_drivers[] = {
 	NULL,                                    // onChannelChanged
 	NULL,                                    // onHassDiscovery
 	false,                                   // loaded
+	},
+#endif
+#if ENABLE_DRIVER_OPENBEKEN_API
+	//drvdetail:{"name":"OpenBekenAPI",
+	//drvdetail:"title":"OpenBeken Native API",
+	//drvdetail:"descr":"Local newline-delimited JSON API for the official OpenBeken Home Assistant integration.",
+	//drvdetail:"requires":""}
+	{ "OpenBekenAPI",                         // Driver Name
+	DRV_OpenBeken_API_Init,                    // Init
+	DRV_OpenBeken_API_OnEverySecond,           // onEverySecond
+	NULL,                                      // appendInformationToHTTPIndexPage
+	NULL,                                      // runQuickTick
+	DRV_OpenBeken_API_Deinit,                  // stopFunction
+	DRV_OpenBeken_API_OnChannelChanged,        // onChannelChanged
+	NULL,                                      // onHassDiscovery
+	false,                                     // loaded
 	},
 #endif
 #if ENABLE_DRIVER_TESTSPIFLASH

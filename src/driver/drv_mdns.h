@@ -4,3 +4,4 @@ void DRV_MDNS_Init();
 void DRV_MDNS_RunEverySecond();
 void DRV_MDNS_RunQuickTick();
 void DRV_MDNS_Shutdown();
+void DRV_MDNS_RegisterOpenBekenAPI(int port);

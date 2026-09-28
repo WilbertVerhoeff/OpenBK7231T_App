@@ -139,6 +139,7 @@ OBKM_SRC  += $(OBK_SRCS)driver/drv_DCF77.c
 OBKM_SRC  += $(OBK_SRCS)libraries/obktime/obktime.c
 OBKM_SRC  += $(OBK_SRCS)driver/drv_timed_events.c
 OBKM_SRC  += $(OBK_SRCS)driver/drv_openWeatherMap.c
+OBKM_SRC  += $(OBK_SRCS)driver/drv_openbeken_api.c
 OBKM_SRC  += $(OBK_SRCS)driver/drv_pir.c
 OBKM_SRC  += $(OBK_SRCS)driver/drv_pixelAnim.c
 OBKM_SRC  += $(OBK_SRCS)driver/drv_pt6523.c

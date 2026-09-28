@@ -1,0 +1,10 @@
+{
+  "config": {
+    "step": {
+      "user": {"title": "Connect to OpenBeken", "description": "Enter the device's IP address and native API port."},
+      "discovery_confirm": {"title": "OpenBeken discovered", "description": "Add {name} to Home Assistant?"}
+    },
+    "error": {"cannot_connect": "Could not connect to the OpenBeken device."},
+    "abort": {"already_configured": "This OpenBeken device is already configured.", "unsupported_protocol": "The device uses an unsupported API version.", "no_device_id": "The device did not advertise an identifier."}
+  }
+}

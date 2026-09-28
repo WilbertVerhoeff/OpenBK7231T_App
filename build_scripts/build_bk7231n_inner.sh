@@ -43,6 +43,11 @@ echo "[INFO] make version: $(make --version | head -1)"
 
 SCRIPT_DIR="$(pwd)"
 
+# The legacy collect2.exe wrapper can be blocked by Windows application control.
+# Use the bundled ld.exe through GCC's specs without changing Windows policy.
+# MAKEFILES also applies this override to the SDK's recursive make invocation.
+export MAKEFILES="$SCRIPT_DIR/build_scripts/bk7231n_windows_link.mk${MAKEFILES:+ $MAKEFILES}"
+
 # Set a localized TEMP dir to avoid PyInstaller extraction permission errors
 # beken_packager.exe is a PyInstaller bundle that needs to extract VCRUNTIME140.dll
 LOCAL_TMP="$(cygpath -m "$SCRIPT_DIR/output/tmp")"

@@ -7,6 +7,9 @@
 #include "../new_pins.h"
 #include "../new_cfg.h"
 #include "cmd_public.h"
+#if ENABLE_DRIVER_OPENBEKEN_API
+#include "../driver/drv_openbeken_api.h"
+#endif
 #include "../driver/drv_public.h"
 #include "../driver/drv_local.h"
 #include "../hal/hal_flashVars.h"
@@ -706,6 +709,10 @@ void apply_smart_light() {
 	// NOTE: this will broadcast MQTT only if a flag is set
 #if ENABLE_MQTT
 	sendFullRGBCW_IfEnabled();
+#endif
+#if ENABLE_DRIVER_OPENBEKEN_API
+	/* One logical notification, after all RGB/CW PWM channels have been updated. */
+	DRV_OpenBeken_API_OnLightChanged();
 #endif
 }
 

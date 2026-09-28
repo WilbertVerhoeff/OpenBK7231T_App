@@ -3,6 +3,7 @@
 #include "../logging/logging.h"
 #include "../obk_config.h"
 #include "drv_mdns.h"
+#include "../hal/hal_wifi.h"
 
 #if (PLATFORM_BK7231N || PLATFORM_BK7231T || PLATFORM_BK7231U || PLATFORM_BK7238 || PLATFORM_BK7252 || PLATFORM_BK7252N || PLATFORM_W600 || PLATFORM_W800 || PLATFORM_BL602 || PLATFORM_LN882H || PLATFORM_LN8825 || PLATFORM_RTL87X0C || PLATFORM_TR6260 || PLATFORM_ECR6600 || PLATFORM_GD32VW553 || (PLATFORM_XRADIO && !PLATFORM_XR872 && !__CONFIG_LWIP_V1) || PLATFORM_ESP8266 || (PLATFORM_ESPIDF && (CONFIG_IDF_TARGET_ESP32 || CONFIG_IDF_TARGET_ESP32C2 || CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C6 || CONFIG_IDF_TARGET_ESP32C61 || CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32S3))) && ENABLE_DRIVER_MDNS
 
@@ -43,6 +44,24 @@ extern int DRV_MDNS_Active;
 static int g_mdnsInitDone = 0;
 static int g_mdnsNetifAdded = 0;
 static s8_t g_mdnsServiceSlot = -1;
+static s8_t g_mdnsOpenBekenServiceSlot = -1;
+static int g_mdnsOpenBekenPort = 0;
+static int g_mdnsWiFiWasConnected = 0;
+
+static void DRV_MDNS_OpenBekenTXT(struct mdns_service *service, void *userdata) {
+	char item[96];
+	char mac[24];
+	const char *name = CFG_GetDeviceName();
+	(void)userdata;
+	HAL_GetMACStr(mac);
+	snprintf(item, sizeof(item), "id=%s", mac);
+	mdns_resp_add_service_txtitem(service, item, strlen(item));
+	snprintf(item, sizeof(item), "name=%s", name ? name : "OpenBeken");
+	mdns_resp_add_service_txtitem(service, item, strlen(item));
+	snprintf(item, sizeof(item), "version=%s", USER_SW_VER);
+	mdns_resp_add_service_txtitem(service, item, strlen(item));
+	mdns_resp_add_service_txtitem(service, "api=1", 5);
+}
 
 #if (LWIP_VERSION_MAJOR > 2) || (LWIP_VERSION_MAJOR == 2 && LWIP_VERSION_MINOR >= 1)
 #define DRV_MDNS_HAS_RESTART_API 1
@@ -115,13 +134,22 @@ static void DRV_MDNS_StartOrRestart(void) {
 #endif
 		if (err == ERR_OK) {
 			g_mdnsNetifAdded = 1;
+			/* Some SDKs build lwIP with room for only one DNS-SD service.
+			 * Prefer the native API when it is available. */
+			if (g_mdnsOpenBekenPort > 0) {
 #if PLATFORM_ESPIDF || PLATFORM_GD32VW553
-			g_mdnsServiceSlot = mdns_resp_add_service(netif, hostName, "_http", DNSSD_PROTO_TCP, 80, 0, 0);
+				g_mdnsOpenBekenServiceSlot = mdns_resp_add_service(netif, hostName, "_openbeken", DNSSD_PROTO_TCP, g_mdnsOpenBekenPort, 0, DRV_MDNS_OpenBekenTXT, 0);
 #else
-			g_mdnsServiceSlot = mdns_resp_add_service(netif, hostName, "_http", DNSSD_PROTO_TCP, 80, 120, 0, 0);
+				g_mdnsOpenBekenServiceSlot = mdns_resp_add_service(netif, hostName, "_openbeken", DNSSD_PROTO_TCP, g_mdnsOpenBekenPort, 120, DRV_MDNS_OpenBekenTXT, 0);
 #endif
-			if (g_mdnsServiceSlot < 0) {
-				addLogAdv(LOG_ERROR, LOG_FEATURE_HTTP, "DRV_MDNS: mdns_resp_add_service failed");
+				if (g_mdnsOpenBekenServiceSlot < 0) addLogAdv(LOG_ERROR, LOG_FEATURE_HTTP, "DRV_MDNS: OpenBeken service failed");
+			} else {
+#if PLATFORM_ESPIDF || PLATFORM_GD32VW553
+				g_mdnsServiceSlot = mdns_resp_add_service(netif, hostName, "_http", DNSSD_PROTO_TCP, 80, 0, 0);
+#else
+				g_mdnsServiceSlot = mdns_resp_add_service(netif, hostName, "_http", DNSSD_PROTO_TCP, 80, 120, 0, 0);
+#endif
+				if (g_mdnsServiceSlot < 0) addLogAdv(LOG_ERROR, LOG_FEATURE_HTTP, "DRV_MDNS: HTTP service failed");
 			}
 #if DRV_MDNS_HAS_RESTART_API
 			mdns_resp_announce(netif);
@@ -133,6 +161,18 @@ static void DRV_MDNS_StartOrRestart(void) {
 			addLogAdv(LOG_ERROR, LOG_FEATURE_HTTP, "DRV_MDNS: mdns_resp_add_netif failed %d", (int)err);
 		}
 	} else {
+		if (g_mdnsOpenBekenPort > 0 && g_mdnsOpenBekenServiceSlot < 0) {
+			if (g_mdnsServiceSlot >= 0) {
+				mdns_resp_del_service(netif, g_mdnsServiceSlot);
+				g_mdnsServiceSlot = -1;
+			}
+#if PLATFORM_ESPIDF || PLATFORM_GD32VW553
+			g_mdnsOpenBekenServiceSlot = mdns_resp_add_service(netif, hostName, "_openbeken", DNSSD_PROTO_TCP, g_mdnsOpenBekenPort, 0, DRV_MDNS_OpenBekenTXT, 0);
+#else
+			g_mdnsOpenBekenServiceSlot = mdns_resp_add_service(netif, hostName, "_openbeken", DNSSD_PROTO_TCP, g_mdnsOpenBekenPort, 120, DRV_MDNS_OpenBekenTXT, 0);
+#endif
+			if (g_mdnsOpenBekenServiceSlot < 0) addLogAdv(LOG_ERROR, LOG_FEATURE_HTTP, "DRV_MDNS: OpenBeken service failed");
+		}
 #if DRV_MDNS_HAS_RESTART_API
 		mdns_resp_restart(netif);
 		mdns_resp_announce(netif);
@@ -145,6 +185,11 @@ static void DRV_MDNS_StartOrRestart(void) {
 	UNLOCK_TCPIP_CORE();
 }
 
+void DRV_MDNS_RegisterOpenBekenAPI(int port) {
+	g_mdnsOpenBekenPort = port;
+	if (DRV_MDNS_Active && Main_IsConnectedToWiFi()) DRV_MDNS_StartOrRestart();
+}
+
 void DRV_MDNS_Init(void) {
 	DRV_MDNS_Active = 1;
 
@@ -154,9 +199,15 @@ void DRV_MDNS_Init(void) {
 	}
 
 	DRV_MDNS_StartOrRestart();
+	g_mdnsWiFiWasConnected = 1;
 }
 
 void DRV_MDNS_RunEverySecond(void) {
+	int connected = Main_IsConnectedToWiFi();
+	if (connected && !g_mdnsWiFiWasConnected) {
+		DRV_MDNS_StartOrRestart();
+	}
+	g_mdnsWiFiWasConnected = connected;
 }
 
 void DRV_MDNS_RunQuickTick(void) {
@@ -176,6 +227,7 @@ void DRV_MDNS_Shutdown(void) {
 		}
 		g_mdnsNetifAdded = 0;
 		g_mdnsServiceSlot = -1;
+		g_mdnsOpenBekenServiceSlot = -1;
 	}
 
 	DRV_MDNS_Active = 0;
@@ -200,6 +252,8 @@ void DRV_MDNS_Shutdown(void) {
 	DRV_MDNS_Active = 0;
 }
 
+void DRV_MDNS_RegisterOpenBekenAPI(int port) { (void)port; }
+
 #endif
 
 #else
@@ -219,5 +273,7 @@ void DRV_MDNS_RunQuickTick(void) {
 void DRV_MDNS_Shutdown(void) {
 	DRV_MDNS_Active = 0;
 }
+
+void DRV_MDNS_RegisterOpenBekenAPI(int port) { (void)port; }
 
 #endif
