@@ -115,6 +115,7 @@ class OpenBekenCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             registry.async_update_device(
                 device.id,
                 sw_version=self.firmware,
+                name=self.device_name,
                 configuration_url=f"http://{self.host}",
             )
 
@@ -150,7 +151,16 @@ class OpenBekenCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if msg_type == "entities":
             items = message.get("entities", [])
             if isinstance(items, list):
-                self.entities = {item["id"]: item for item in items if isinstance(item, dict) and isinstance(item.get("id"), str)}
+                device = message.get("device")
+                if isinstance(device, dict):
+                    if isinstance(device.get("name"), str) and device["name"]:
+                        self.device_name = device["name"]
+                    if isinstance(device.get("firmware"), str) and device["firmware"]:
+                        self.firmware = device["firmware"]
+                    self._async_update_device_info()
+                self.entities = {item["id"]: dict(item) for item in items if isinstance(item, dict) and isinstance(item.get("id"), str)}
+                self.states = {key: value for key, value in self.states.items() if key in self.entities}
+                self.async_set_updated_data({"entities": self.entities, "states": self.states})
         elif msg_type == "state" and isinstance(message.get("entities"), dict):
             self.states = {key: dict(value) for key, value in message["entities"].items() if isinstance(value, dict)}
             self._seq = message.get("seq")

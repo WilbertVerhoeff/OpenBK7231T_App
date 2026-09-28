@@ -6,13 +6,13 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
-from .entity import OpenBekenEntity
+from .entity import OpenBekenEntity, async_setup_dynamic_platform
 from .coordinator import OpenBekenCoordinator
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
     coordinator: OpenBekenCoordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities(OpenBekenSwitch(coordinator, item) for item in coordinator.entities.values() if item.get("platform") == "switch")
+    async_setup_dynamic_platform(coordinator, entry, "switch", OpenBekenSwitch, async_add_entities)
 
 
 class OpenBekenSwitch(OpenBekenEntity, SwitchEntity):

@@ -20,6 +20,8 @@ typedef enum ColorChannel {
 	COLOR_CHANNEL_WARM_WHITE
 } ColorChannel_t;
 
+bool Strip_HasChannel(ColorChannel_t ch);
+
 void LEDS_InitShared(ledStrip_t *api);
 void LEDS_ShutdownShared();
 

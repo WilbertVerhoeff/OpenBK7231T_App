@@ -9,6 +9,8 @@ from homeassistant.components.light import (
     ATTR_EFFECT,
     ATTR_RGB_COLOR,
     ATTR_WHITE,
+    DEFAULT_MAX_KELVIN,
+    DEFAULT_MIN_KELVIN,
     EFFECT_OFF,
     ColorMode,
     LightEntity,
@@ -20,20 +22,20 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
-from .entity import OpenBekenEntity
+from .entity import OpenBekenEntity, async_setup_dynamic_platform
 from .coordinator import OpenBekenCoordinator
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
     coordinator: OpenBekenCoordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities(OpenBekenLight(coordinator, item) for item in coordinator.entities.values() if item.get("platform") == "light")
+    async_setup_dynamic_platform(coordinator, entry, "light", OpenBekenLight, async_add_entities)
 
 
 class OpenBekenLight(OpenBekenEntity, LightEntity):
     """One OpenBeken logical light with WLED-like effect selection."""
 
-    def __init__(self, coordinator: OpenBekenCoordinator, entity: dict) -> None:
-        super().__init__(coordinator, entity)
+    def _apply_description(self, entity: dict) -> None:
+        super()._apply_description(entity)
         self.features = set(entity.get("features", []))
         modes = set()
         if "rgb" in self.features:
@@ -50,6 +52,9 @@ class OpenBekenLight(OpenBekenEntity, LightEntity):
         if "color_temp" in self.features:
             self._attr_min_color_temp_kelvin = round(1000000 / entity["max_mireds"])
             self._attr_max_color_temp_kelvin = round(1000000 / entity["min_mireds"])
+        else:
+            self._attr_min_color_temp_kelvin = DEFAULT_MIN_KELVIN
+            self._attr_max_color_temp_kelvin = DEFAULT_MAX_KELVIN
 
     @property
     def is_on(self) -> bool | None:
@@ -77,7 +82,7 @@ class OpenBekenLight(OpenBekenEntity, LightEntity):
     def color_mode(self) -> ColorMode:
         mode = self.obk_state.get("mode")
         if mode == "effect":
-            return ColorMode.BRIGHTNESS
+            return ColorMode.RGB if "rgb" in self.features else next(iter(self._attr_supported_color_modes))
         if mode == "white" and "color_temp" in self.features:
             return ColorMode.COLOR_TEMP
         if mode == "white" and "white_level" in self.features and "rgb" in self.features:
@@ -102,7 +107,7 @@ class OpenBekenLight(OpenBekenEntity, LightEntity):
             state["mode"] = "white"
         if ATTR_EFFECT in kwargs and "effects" in self.features:
             if kwargs[ATTR_EFFECT] == EFFECT_OFF:
-                state["mode"] = "rgb"
+                state["mode"] = "rgb" if "rgb" in self.features else "white"
             else:
                 state["effect"] = kwargs[ATTR_EFFECT]
                 state["mode"] = "effect"

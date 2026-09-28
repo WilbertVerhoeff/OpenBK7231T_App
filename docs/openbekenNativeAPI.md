@@ -26,7 +26,7 @@ The device then sends `entities` and a full `state` snapshot. Unsupported versio
 
 Version 1 exposes only metadata the firmware can represent reliably:
 
-- `light_0` when PWM light channels or an initialized SM16703P strip are configured. It always has `on_off`, `brightness` (0–255), and `mode`. `rgb` is advertised only for an RGB-capable PWM configuration or initialized SM16703P strip. `white_level` is advertised only when a PWM white output can be identified. `effects` and the exact effect-name list are advertised only when PixelAnim and SM16703P are both running.
+- `light_0` for the standard LED controller's active outputs. It always has `on_off`, `brightness` (0–255), and `mode`. `rgb` follows configured logical RGB outputs, including active LED driver remaps and initialized strip color order. `color_temp` is advertised for warm/cold outputs, or the standard flag 24 RGB cool-white emulation with a white output. Thus two-PWM CCT and five-output RGBCW devices are supported without requiring SM16703P. `white_level` is advertised only when a physical PWM white output can be identified. `effects` and the exact effect-name list are advertised only when PixelAnim and SM16703P are both running. Raw PWM mode and forced controller flags follow the standard controller configuration.
 - `switch_<channel>` for configured relay channels.
 - `sensor_<channel>` for configured numeric sensor channels, including automatically configured DHT/SHT/CHT and DS18B20 channels. Descriptors include `device_class` and `unit` when known; state is `{"value":number}` or `{"value":null}` before a valid reading.
 - `binary_sensor_<channel>` for motion and open/closed channels, with `{"on":boolean}` state.
@@ -37,7 +37,9 @@ Channels marked private with `SetChannelPrivate` are excluded from entity listin
 
 `mode` is `rgb`, `white`, or `effect` where supported. The `rgb` value is the remembered RGB selection, even while warm white is active; `white_level` (0–255) reports the physical white PWM channel output. Thus an RGB+white panel can distinguish selected RGB color from actual warm-white output. `effect` is the selected PixelAnim name in effect mode and `null` otherwise. Animation frames are not emitted as state changes.
 
-The generic `ha_api_generic` firmware uses OpenBeken's standard LED output layer. Its API descriptors and status fields are preserved for compatibility, including the existing `color_temp`, `min_mireds`, and `max_mireds` fields where advertised. The earlier local RGB-strip-as-cool-white emulation has been removed. Flag 24 has OpenBeken's standard four-PWM meaning; it does not add that emulation. Physical output behavior is determined by OpenBeken's configured pins, channels and drivers.
+The generic `ha_api_dynamic` firmware uses OpenBeken's standard LED output layer. It keeps protocol version 1 and the existing state field names, including `color_temp`, `min_mireds`, and `max_mireds` where supported. Physical output behavior is determined by OpenBeken's configured pins, channels and drivers. The API does not implement separate light mixing or embed a device profile.
+
+Entity descriptions are sent on every connection and can also arrive unsolicited during a connection. The server rebuilds and compares the description once per second; changed descriptions are immediately followed by a full state snapshot. Readings and animation frames do not affect this comparison. Descriptions include optional `device` metadata with `name` and `firmware`, which can also change. A client must reconcile entity IDs, refresh existing entity capabilities and make disappeared entities unavailable, rather than treating the first description as permanent. Existing protocol 1 clients may ignore the optional metadata.
 
 `get_state` requests a fresh authoritative snapshot at any time. Snapshots and deltas include a boot-local monotonic `seq`. A client that sees a gap must issue `get_state`.
 

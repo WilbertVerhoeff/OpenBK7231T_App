@@ -280,6 +280,7 @@ void LED_NextColorTemperature();
 void LED_ToggleEnabled();
 bool LED_IsLedDriverChipRunning();
 bool LED_IsLEDRunning();
+int LED_GetFirstChannelIndex();
 void LED_SetEnableAll(int bEnable);
 void LED_SetStripStateOutputs();
 int LED_GetEnableAll();

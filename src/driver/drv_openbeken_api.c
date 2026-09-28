@@ -9,6 +9,7 @@
 #include "drv_mdns.h"
 #include "drv_public.h"
 #include "drv_local.h"
+#include "drv_leds_shared.h"
 #include <lwip/sockets.h>
 #include <math.h>
 #include <float.h>
@@ -20,6 +21,7 @@
 #define OBKA_RX_MAX 1024
 #define OBKA_TX_MAX 8192
 #define OBKA_BATCH_MS 40
+#define OBKA_CONFIG_SCAN_MS 1000
 
 extern int Main_HasWiFiConnected(void);
 
@@ -36,6 +38,15 @@ static xTaskHandle g_obkaThread = NULL;
 /* Only the server thread writes this buffer. Keeping it off the task stack is
  * important: the receive buffer and JSON parser are active during a hello. */
 static char g_obkaTx[OBKA_TX_MAX];
+static unsigned int g_obkaEntitiesHash;
+static int g_obkaEntitiesHashKnown;
+
+/* Hash only the entity description, never readings or animation frames. */
+static unsigned int OBKA_DescriptionHash(const char *text) {
+	unsigned int hash = 2166136261u;
+	while (*text) { hash ^= (unsigned char)*text++; hash *= 16777619u; }
+	return hash;
+}
 
 static void OBKA_MarkChannel(int ch) {
 	if (ch >= 0 && ch < CHANNEL_MAX) {
@@ -165,44 +176,60 @@ static void OBKA_JSONString(char *out, int outLen, const char *in) {
 	out[o] = 0;
 }
 
-static int OBKA_HasLight(void) {
+/* Logical RGBCW outputs follow the standard LED controller's channel mapping,
+ * the active driver's remap, or the configured strip color order. */
+static unsigned int OBKA_LightOutputs(void) {
 #if ENABLE_LED_BASIC
-	int ch;
-	for (ch = 0; ch < 5; ch++) {
-		if (CHANNEL_HasChannelPinWithRoleOrRole(ch, IOR_PWM, IOR_PWM_n)) return 1;
-	}
+	unsigned int outputs = 0;
+	int ch, pwmCount = 0, first = LED_GetFirstChannelIndex();
+	if (CFG_HasFlag(OBK_FLAG_LED_RAWCHANNELSMODE) && !LED_IsLedDriverChipRunning() &&
+		!CFG_HasFlag(OBK_FLAG_LED_FORCESHOWRGBCWCONTROLLER) && !CFG_HasFlag(OBK_FLAG_LED_FORCE_MODE_RGB)) return 0;
+	PIN_get_Relay_PWM_Count(0, &pwmCount, 0);
 #if ENABLE_DRIVER_SM16703P
-	if (DRV_IsRunning("SM16703P") && pixel_count > 0) return 1;
+	if (DRV_IsRunning("SM16703P") && pixel_count > 0) {
+		for (ch = 0; ch < 5; ch++)
+			if (Strip_HasChannel((ColorChannel_t)ch)) outputs |= 1u << ch;
+		if (pwmCount == 2) outputs |= (1u << 3) | (1u << 4);
+		else if (pwmCount > 0) outputs |= 1u << 4;
+	} else
 #endif
-	return 0;
+	if (LED_IsLedDriverChipRunning()) {
+		for (ch = 0; ch < 5; ch++)
+			if (g_cfg.ledRemap.ar[ch] != 0xff) outputs |= 1u << ch;
+	} else if (pwmCount == 2) {
+		outputs = (1u << 3) | (1u << 4);
+	} else if (pwmCount == 1) {
+		outputs = 1u << 4; /* Single-color dimmer. */
+	} else {
+		for (ch = 0; ch < 5; ch++)
+			if (CHANNEL_HasChannelPinWithRoleOrRole(first + ch, IOR_PWM, IOR_PWM_n)) outputs |= 1u << ch;
+	}
+	if (CFG_HasFlag(OBK_FLAG_LED_FORCESHOWRGBCWCONTROLLER)) outputs = 31u;
+	if (CFG_HasFlag(OBK_FLAG_LED_FORCE_MODE_RGB)) outputs = 7u;
+	return outputs;
 #else
 	return 0;
 #endif
 }
 
+static int OBKA_HasLight(void) { return OBKA_LightOutputs() != 0; }
+
 static int OBKA_HasRGB(void) {
-#if ENABLE_DRIVER_SM16703P
-	if (DRV_IsRunning("SM16703P") && pixel_count > 0) return 1;
-#endif
-	return CHANNEL_HasChannelPinWithRoleOrRole(0, IOR_PWM, IOR_PWM_n) &&
-		CHANNEL_HasChannelPinWithRoleOrRole(1, IOR_PWM, IOR_PWM_n) &&
-		CHANNEL_HasChannelPinWithRoleOrRole(2, IOR_PWM, IOR_PWM_n);
+	return (OBKA_LightOutputs() & 7u) == 7u;
 }
 
 static int OBKA_WhiteChannel(void) {
-	int ch;
-	if (CHANNEL_HasChannelPinWithRoleOrRole(4, IOR_PWM, IOR_PWM_n)) return 4;
-	/* Strip + one PWM is a common RGB + white arrangement. */
+#if ENABLE_LED_BASIC
+	int pwmCount = 0, first = LED_GetFirstChannelIndex(), ch;
+	if (!(OBKA_LightOutputs() & (1u << 4))) return -1;
+	PIN_get_Relay_PWM_Count(0, &pwmCount, 0);
+	if (pwmCount == 2) return first + 1;
 #if ENABLE_DRIVER_SM16703P
-	if (DRV_IsRunning("SM16703P") && pixel_count > 0) {
-		for (ch = 0; ch < 5; ch++)
-			if (CHANNEL_HasChannelPinWithRoleOrRole(ch, IOR_PWM, IOR_PWM_n)) return ch;
-	}
+	if (DRV_IsRunning("SM16703P") && pixel_count > 0 && pwmCount > 0) return first;
 #endif
-	if (!OBKA_HasRGB()) {
-		for (ch = 0; ch < 5; ch++)
-			if (CHANNEL_HasChannelPinWithRoleOrRole(ch, IOR_PWM, IOR_PWM_n)) return ch;
-	}
+	ch = pwmCount == 1 ? first : first + 4;
+	if (CHANNEL_HasChannelPinWithRoleOrRole(ch, IOR_PWM, IOR_PWM_n)) return ch;
+#endif
 	return -1;
 }
 
@@ -215,13 +242,11 @@ static int OBKA_HasEffects(void) {
 }
 
 static int OBKA_HasColorTemp(void) {
-#if ENABLE_LED_BASIC && ENABLE_DRIVER_SM16703P
-	int pwmCount = 0;
-	PIN_get_Relay_PWM_Count(0, &pwmCount, 0);
-	return OBKA_HasRGB() && OBKA_WhiteChannel() >= 0 &&
-		pwmCount == 1 &&
-		DRV_IsRunning("SM16703P") && pixel_count > 0 &&
-		CFG_HasFlag(OBK_FLAG_LED_EMULATE_COOL_WITH_RGB);
+#if ENABLE_LED_BASIC
+	unsigned int outputs = OBKA_LightOutputs();
+	return (outputs & ((1u << 3) | (1u << 4))) == ((1u << 3) | (1u << 4)) ||
+		((outputs & 7u) == 7u && (outputs & (1u << 4)) &&
+		CFG_HasFlag(OBK_FLAG_LED_EMULATE_COOL_WITH_RGB));
 #else
 	return 0;
 #endif
@@ -230,7 +255,7 @@ static int OBKA_HasColorTemp(void) {
 static const char *OBKA_LightMode(void) {
 #if ENABLE_LED_BASIC
 	switch (LED_GetMode()) {
-	case Light_Temperature: return OBKA_WhiteChannel() >= 0 ? "white" : "temperature";
+	case Light_Temperature: return OBKA_HasColorTemp() || OBKA_WhiteChannel() >= 0 ? "white" : "temperature";
 	case Light_RGB: return "rgb";
 	case Light_Anim: return "effect";
 	default: return "all";
@@ -267,10 +292,12 @@ static void OBKA_AppendLightState(char *out, int outLen) {
 #endif
 }
 
-static int OBKA_SendEntities(int sock) {
+static int OBKA_SendEntities(int sock, int onlyIfChanged) {
 	char *out = g_obkaTx, name[96];
 	int ch, first = 1;
-	int n = snprintf(out, OBKA_TX_MAX, "{\"type\":\"entities\",\"entities\":[");
+	int n;
+	OBKA_JSONString(name, sizeof(name), CFG_GetDeviceName());
+	n = snprintf(out, OBKA_TX_MAX, "{\"type\":\"entities\",\"device\":{\"name\":\"%s\",\"firmware\":\"%s\"},\"entities\":[", name, USER_SW_VER);
 	n += snprintf(out + n, OBKA_TX_MAX - n, "{\"id\":\"restart_0\",\"platform\":\"button\",\"name\":\"Restart\"}");
 	first = 0;
 	if (OBKA_HasLight()) {
@@ -336,7 +363,14 @@ static int OBKA_SendEntities(int sock) {
 	}
 #endif
 	snprintf(out + n, OBKA_TX_MAX - n, "]}\n");
-	return OBKA_Send(sock, out);
+	{
+		unsigned int hash = OBKA_DescriptionHash(out);
+		if (onlyIfChanged && g_obkaEntitiesHashKnown && hash == g_obkaEntitiesHash) return 1;
+		if (!OBKA_Send(sock, out)) return 0;
+		g_obkaEntitiesHash = hash;
+		g_obkaEntitiesHashKnown = 1;
+	}
+	return 2; /* A new description was sent; send an authoritative snapshot next. */
 }
 
 static int OBKA_SendSnapshot(int sock) {
@@ -384,13 +418,15 @@ static int OBKA_SendSnapshot(int sock) {
 static int OBKA_SendPending(int sock) {
 	unsigned long changed0, changed1;
 	char out[512], state[256];
-	int ch;
+	int ch, lightDirty;
 	if (!g_obkaLightDirty && !g_obkaChangedChannels[0] && !g_obkaChangedChannels[1] && !g_obkaChangedEnergy) return 1;
 	if ((unsigned int)(rtos_get_time() - g_obkaLastChangeMs) < OBKA_BATCH_MS) return 1;
 	changed0 = g_obkaChangedChannels[0]; changed1 = g_obkaChangedChannels[1];
 	g_obkaChangedChannels[0] = 0; g_obkaChangedChannels[1] = 0;
-	if (g_obkaLightDirty) {
-		g_obkaLightDirty = 0; OBKA_AppendLightState(state, sizeof(state));
+	lightDirty = g_obkaLightDirty;
+	g_obkaLightDirty = 0;
+	if (lightDirty && OBKA_HasLight()) {
+		OBKA_AppendLightState(state, sizeof(state));
 		snprintf(out, sizeof(out), "{\"type\":\"state_changed\",\"seq\":%u,\"entity\":\"light_0\",\"state\":%s}\n", ++g_obkaSequence, state);
 		if (!OBKA_Send(sock, out)) return 0;
 	}
@@ -485,7 +521,7 @@ static void OBKA_ProcessSetState(int sock, cJSON *root) {
 			if (!cJSON_IsString(mode)) { OBKA_Result(sock,id,0,"unsupported_feature"); return; }
 			requestedMode = mode->valuestring;
 			if ((!strcmp(requestedMode,"rgb") && !OBKA_HasRGB()) ||
-				(!strcmp(requestedMode,"white") && OBKA_WhiteChannel() < 0) ||
+				(!strcmp(requestedMode,"white") && OBKA_WhiteChannel() < 0 && !OBKA_HasColorTemp()) ||
 				(!strcmp(requestedMode,"effect") && !OBKA_HasEffects()) ||
 				(strcmp(requestedMode,"rgb") && strcmp(requestedMode,"white") && strcmp(requestedMode,"effect"))) { OBKA_Result(sock,id,0,"unsupported_feature"); return; }
 		} else if (effect) requestedMode = "effect";
@@ -494,7 +530,7 @@ static void OBKA_ProcessSetState(int sock, cJSON *root) {
 		if ((rgb && strcmp(requestedMode,"rgb")) || (white && strcmp(requestedMode,"white")) ||
 			(colorTemp && strcmp(requestedMode,"white")) || (effect && strcmp(requestedMode,"effect")) ||
 			(requestedMode && !strcmp(requestedMode,"effect") && effectIndex < 0 && currentEffect < 0)) { OBKA_Result(sock,id,0,"unsupported_feature"); return; }
-		if (requestedMode && !strcmp(requestedMode,"white")) LED_SetTemperature(colorTemp ? colorTemp->valueint : (int)led_temperature_max, true);
+		if (requestedMode && !strcmp(requestedMode,"white") && (OBKA_HasColorTemp() || OBKA_HasRGB())) LED_SetTemperature(colorTemp ? colorTemp->valueint : (int)led_temperature_max, true);
 		else if (requestedMode && !strcmp(requestedMode,"rgb")) LED_SetFinalRGB(rgb ? r->valueint : LED_GetRed255(), rgb ? g->valueint : LED_GetGreen255(), rgb ? b->valueint : LED_GetBlue255());
 #if ENABLE_DRIVER_PIXELANIM
 		else if (requestedMode && !strcmp(requestedMode,"effect")) PixelAnim_SetAnim(effectIndex >= 0 ? effectIndex : currentEffect);
@@ -527,7 +563,7 @@ static int OBKA_ProcessLine(int sock, char *line, int *helloDone) {
 		protocol = cJSON_GetObjectItemCaseSensitive(root, "protocol");
 		if (strcmp(type->valuestring,"hello") || !cJSON_IsNumber(protocol) || protocol->valueint != 1) { cJSON_Delete(root); OBKA_Send(sock,"{\"type\":\"error\",\"error\":\"unsupported_protocol\",\"protocol\":1}\n"); return 0; }
 		*helloDone = 1;
-		if (!OBKA_SendEntities(sock) || !OBKA_SendSnapshot(sock)) { cJSON_Delete(root); return 0; }
+		if (!OBKA_SendEntities(sock, 0) || !OBKA_SendSnapshot(sock)) { cJSON_Delete(root); return 0; }
 	} else if (!strcmp(type->valuestring,"get_state")) {
 		if (!OBKA_SendSnapshot(sock)) { cJSON_Delete(root); return 0; }
 	}
@@ -548,6 +584,7 @@ static void OBKA_ServerThread(void *param) {
 	char rx[OBKA_RX_MAX], mac[24], name[96];
 	int len, hello, seconds;
 	unsigned int lastEnergyScanMs = 0;
+	unsigned int lastConfigScanMs = 0;
 	struct sockaddr_in addr;
 	int reuse = 1;
 	(void)param;
@@ -565,11 +602,17 @@ static void OBKA_ServerThread(void *param) {
 		HAL_GetMACStr(mac); OBKA_JSONString(name,sizeof(name),CFG_GetDeviceName());
 		snprintf(g_obkaTx,sizeof(g_obkaTx),"{\"type\":\"hello\",\"protocol\":1,\"device_id\":\"%s\",\"name\":\"%s\",\"firmware\":\"%s\",\"platform\":\"%s\"}\n",mac,name,USER_SW_VER,PLATFORM_MCU_NAME);
 		if (!OBKA_Send(client,g_obkaTx)) { close(client); continue; }
-		len=0; hello=0; seconds=0;
+		len=0; hello=0; seconds=0; g_obkaEntitiesHashKnown=0; lastConfigScanMs=rtos_get_time();
 		while(g_obkaRunning && Main_HasWiFiConnected()) {
 			int got=recv(client,rx+len,sizeof(rx)-len-1,0);
 			if(got>0) { seconds=0; int start=0,i; len+=got; rx[len]=0; for(i=0;i<len;i++) if(rx[i]=='\n') { rx[i]=0; if(!OBKA_ProcessLine(client,rx+start,&hello)) goto close_client; start=i+1; } if(start) { memmove(rx,rx+start,len-start); len-=start; } if(len>=sizeof(rx)-1) { OBKA_Send(client,"{\"type\":\"error\",\"error\":\"packet_too_large\"}\n"); goto close_client; } }
 			else if(got==0 || (got<0 && errno!=EAGAIN && errno!=EWOULDBLOCK)) goto close_client;
+			if (hello && (unsigned int)(rtos_get_time() - lastConfigScanMs) >= OBKA_CONFIG_SCAN_MS) {
+				int descriptionResult;
+				lastConfigScanMs = rtos_get_time();
+				descriptionResult = OBKA_SendEntities(client, 1);
+				if (!descriptionResult || (descriptionResult == 2 && !OBKA_SendSnapshot(client))) goto close_client;
+			}
 			if (hello && (unsigned int)(rtos_get_time() - lastEnergyScanMs) >= 1000) {
 				lastEnergyScanMs = rtos_get_time();
 				OBKA_ScanEnergy();

@@ -7,19 +7,19 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
 from .coordinator import OpenBekenCoordinator
-from .entity import OpenBekenEntity
+from .entity import OpenBekenEntity, async_setup_dynamic_platform
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
     coordinator: OpenBekenCoordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities(OpenBekenBinarySensor(coordinator, item) for item in coordinator.entities.values() if item.get("platform") == "binary_sensor")
+    async_setup_dynamic_platform(coordinator, entry, "binary_sensor", OpenBekenBinarySensor, async_add_entities)
 
 
 class OpenBekenBinarySensor(OpenBekenEntity, BinarySensorEntity):
     """Movement or contact state from an OpenBeken channel."""
 
-    def __init__(self, coordinator: OpenBekenCoordinator, entity: dict) -> None:
-        super().__init__(coordinator, entity)
+    def _apply_description(self, entity: dict) -> None:
+        super()._apply_description(entity)
         self._attr_device_class = entity.get("device_class") or None
 
     @property
