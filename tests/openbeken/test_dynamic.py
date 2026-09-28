@@ -121,7 +121,7 @@ def light(features=('brightness',), **extra):
 class DynamicEntities(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.registry = Mock()
-        self.registry.async_get_device.return_value = types.SimpleNamespace(id='existing-device')
+        self.registry.async_get_device_by_identifier.return_value = types.SimpleNamespace(id='existing-device')
         registry_api.async_get = Mock(return_value=self.registry)
         self.entry = Mock()
         self.entry.async_create_background_task.side_effect = lambda hass, coro, name: asyncio.create_task(coro)
