@@ -17,6 +17,7 @@ from .const import DOMAIN, PROTOCOL_VERSION
 _LOGGER = logging.getLogger(__name__)
 # Entity metadata and full snapshots can contain many channels.
 MAX_LINE = 8192
+CONNECT_TIMEOUT = 15
 
 
 async def _read_json_line(reader: asyncio.StreamReader, timeout: float = 75) -> dict[str, Any]:
@@ -73,23 +74,8 @@ class OpenBekenCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _connect_once(self) -> None:
         try:
-            self._reader, self._writer = await asyncio.wait_for(asyncio.open_connection(self.host, self.port), timeout=5)
-            hello = await _read_json_line(self._reader, timeout=8)
-            if hello.get("type") != "hello" or hello.get("protocol") != PROTOCOL_VERSION or hello.get("device_id", "").replace(":", "").replace("-", "").lower() != self.device_id.replace(":", "").replace("-", "").lower():
-                raise ValueError("OpenBeken device identity or protocol changed")
-            self.firmware = hello.get("firmware")
-            self._writer.write(b'{"type":"hello","protocol":1,"client":"home-assistant"}\n')
-            await self._writer.drain()
-            self.entities = {}
-            self.states = {}
-            self._seq = None
-            got_entities = False
-            while True:
-                message = await _read_json_line(self._reader, timeout=8)
-                got_entities |= message.get("type") == "entities"
-                self._handle_message(message)
-                if got_entities and message.get("type") == "state" and message.get("full"):
-                    break
+            async with asyncio.timeout(CONNECT_TIMEOUT):
+                await self._handshake()
             self._connected = True
             self._async_update_device_info()
             self.async_set_updated_data({"entities": self.entities, "states": self.states})
@@ -98,9 +84,32 @@ class OpenBekenCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._reader_loop(),
                 f"{DOMAIN} device reader",
             )
+        except asyncio.CancelledError:
+            await self._close_connection()
+            raise
         except (OSError, asyncio.TimeoutError, ConnectionError, ValueError, json.JSONDecodeError, UpdateFailed) as err:
             await self._close_connection()
             raise UpdateFailed(f"Could not connect to OpenBeken device: {err}") from err
+
+    async def _handshake(self) -> None:
+        """Finish the entire initial exchange within one overall deadline."""
+        self._reader, self._writer = await asyncio.wait_for(asyncio.open_connection(self.host, self.port), timeout=5)
+        hello = await _read_json_line(self._reader, timeout=8)
+        if hello.get("type") != "hello" or hello.get("protocol") != PROTOCOL_VERSION or hello.get("device_id", "").replace(":", "").replace("-", "").lower() != self.device_id.replace(":", "").replace("-", "").lower():
+            raise ValueError("OpenBeken device identity or protocol changed")
+        self.firmware = hello.get("firmware")
+        self._writer.write(b'{"type":"hello","protocol":1,"client":"home-assistant"}\n')
+        await asyncio.wait_for(self._writer.drain(), timeout=5)
+        self.entities = {}
+        self.states = {}
+        self._seq = None
+        got_entities = False
+        while True:
+            message = await _read_json_line(self._reader, timeout=8)
+            got_entities |= message.get("type") == "entities"
+            self._handle_message(message)
+            if got_entities and message.get("type") == "state" and message.get("full"):
+                break
 
     @callback
     def _async_update_device_info(self) -> None:
@@ -186,7 +195,7 @@ class OpenBekenCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self._writer is None or self._writer.is_closing():
             raise ConnectionError("OpenBeken device is disconnected")
         self._writer.write(json.dumps(message, separators=(",", ":")).encode() + b"\n")
-        await self._writer.drain()
+        await asyncio.wait_for(self._writer.drain(), timeout=5)
 
     async def async_request_state(self) -> None:
         if self._connected:
@@ -238,8 +247,8 @@ class OpenBekenCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if writer:
             writer.close()
             try:
-                await writer.wait_closed()
-            except OSError:
+                await asyncio.wait_for(writer.wait_closed(), timeout=2)
+            except (OSError, asyncio.TimeoutError):
                 pass
         if not from_reader and self._runner and self._runner is not asyncio.current_task():
             self._runner.cancel()
