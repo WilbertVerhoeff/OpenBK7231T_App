@@ -117,8 +117,9 @@ class OpenBekenCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not isinstance(self.firmware, str) or not self.firmware:
             return
         registry = dr.async_get(self.hass)
-        device = registry.async_get_device(
-            identifiers={(DOMAIN, self.device_id.replace(":", "").replace("-", "").lower())}
+        device = registry.async_get_device_by_identifier(
+            (DOMAIN, self.device_id.replace(":", "").replace("-", "").lower()),
+            self.config_entry.entry_id,
         )
         if device is not None:
             registry.async_update_device(
