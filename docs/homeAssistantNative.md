@@ -5,6 +5,11 @@ The Home Assistant integration is maintained in its own repository:
 This firmware repository contains the native API server and its protocol documentation.
 The integration source, tests, installation instructions and releases belong to the integration repository.
 
+The [first firmware beta](https://github.com/WilbertVerhoeff/OpenBK7231T_App/releases/tag/ha-api-v0.1.0-beta.1)
+contains BK7231N and BK7231T images. The BK7231N image was tested on LSC Smart
+Panel Lights with RGB, warm and cool white, and an IR remote. The BK7231T image
+has build validation only.
+
 ## Device setup
 
 Use firmware built for your device's chipset that includes the `OpenBekenAPI` driver.
@@ -16,7 +21,7 @@ The API listens on TCP port 6054 and mDNS advertises `_openbeken._tcp.local`.
 Manual IP setup in Home Assistant works if mDNS is unavailable. MQTT and existing
 MQTT Home Assistant discovery remain separate from the native API.
 
-The connection currently has no authentication or TLS; use it on a trusted LAN.
+The connection currently has no authentication or TLS. Use it on a trusted LAN.
 See [openbekenNativeAPI.md](openbekenNativeAPI.md) for the protocol, supported
 entities and connection behavior. Follow the installation instructions in the
 [integration repository](https://github.com/WilbertVerhoeff/openbeken-homeassistant)
