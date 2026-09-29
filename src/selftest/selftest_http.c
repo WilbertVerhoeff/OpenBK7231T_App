@@ -73,7 +73,7 @@ void Test_FakeHTTPClientPacket_Generic() {
 	memset(&request, 0, sizeof(request));
 
 
-	request.fd = 0;
+	request.fd = HTTP_INVALID_SOCKET;
 	request.received = buffer;
 	request.receivedLen = iResult;
 	outbuf[0] = '\0';

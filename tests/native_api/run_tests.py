@@ -20,6 +20,21 @@ def main():
     channel_types = sorted(set(re.findall(r"\bChType_\w+", source)))
     with tempfile.TemporaryDirectory(prefix="obka-tests-") as directory:
         directory = Path(directory)
+        # Test the actual HTTP writer: socket zero is valid on lwIP. The fake
+        # request uses an explicit invalid descriptor instead of a real socket.
+        http = (ROOT / "src/httpserver/new_http.c").read_text()
+        http = http[http.index("int postany("):http.index("int poststr(")]
+        (directory / "http_reply_body.inc").write_text(http)
+        http_executable = directory / "http_reply_tests"
+        subprocess.run([
+            os.environ.get("CC", "gcc"), "-std=gnu99", "-g", "-O1",
+            "-Wall", "-Wextra", "-Werror", "-fsanitize=address,undefined",
+            "-fno-omit-frame-pointer", "-no-pie", "-I", str(directory),
+            "-I", str(ROOT / "src/httpserver"),
+            str(ROOT / "tests/native_api/test_http_reply.c"),
+            "-o", str(http_executable)
+        ], check=True)
+        subprocess.run([str(http_executable)], check=True, timeout=10)
         # The hook must update SDK headers reproducibly and accept a second run.
         header = directory / "sdk/include/lwip/apps/mdns_opts.h"
         header.parent.mkdir(parents=True)

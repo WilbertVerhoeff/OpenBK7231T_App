@@ -31,6 +31,9 @@ extern const char ha_discovery_script[];
 #define HTTP_RESPONSE_NOT_FOUND 404
 #define HTTP_RESPONSE_SERVER_ERROR 500
 
+/* Socket zero is valid on lwIP; use this only for requests without a socket. */
+#define HTTP_INVALID_SOCKET (-1)
+
 #define MAX_QUERY 16
 #define MAX_HEADERS 16
 typedef struct http_request_tag {

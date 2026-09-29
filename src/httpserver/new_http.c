@@ -683,8 +683,8 @@ int postany(http_request_t *request, const char *str, int len)
 
 	if (NULL == str)
 	{
-		// fd will be NULL for unit tests where HTTP packet is faked locally
-		if (request->fd == 0)
+		// A fake request has no socket. Descriptor zero is a real lwIP socket.
+		if (request->fd == HTTP_INVALID_SOCKET)
 		{
 			return request->replylen;
 		}
